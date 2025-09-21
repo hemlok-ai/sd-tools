@@ -3,9 +3,9 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from PIL import Image
-import os
 from pathlib import Path
 
+Image.MAX_IMAGE_PIXELS = None
 
 class ImageToolApp:
     def __init__(self, root: tk.Tk):
@@ -127,10 +127,13 @@ class ImageToolApp:
             return
 
         output_format = self.format_var.get()
+
+        # 拡張子とPillowフォーマット名のマッピング
         ext_map = {"png": ".png", "webp": ".webp", "jpg": ".jpg"}
+        format_map = {"png": "PNG", "webp": "WEBP", "jpg": "JPEG"}  # ← "JPG" → "JPEG"
+
         default_ext = ext_map[output_format]
 
-        # 保存先を選択
         output_path = filedialog.asksaveasfilename(
             title="保存先を選択",
             initialfile=f"converted_{input_path.stem}{default_ext}",
@@ -144,26 +147,41 @@ class ImageToolApp:
         output_path = Path(output_path)
 
         try:
+            self.status_var.set("画像を読み込んでいます...")
+            self.root.update_idletasks()  # GUI更新
+
             with Image.open(input_path) as img:
-                # RGBに変換（透明度がある場合など）
+                original_mode = img.mode
+                original_size = img.size
+                self.status_var.set(f"読み込み完了: {original_size}, {original_mode}")
+
+                # JPGはRGB必須（透過対応）
                 if output_format == "jpg":
                     if img.mode in ("RGBA", "LA", "P"):
+                        self.status_var.set("カラーモードをRGBに変換中...")
                         img = img.convert("RGB")
 
                 save_kwargs = {}
-                if output_format == "webp":
+                if output_format in ("webp", "jpg"):
                     save_kwargs["quality"] = self.quality_var.get()
-                elif output_format == "jpg":
-                    save_kwargs["quality"] = self.quality_var.get()
-                    save_kwargs["optimize"] = True
+                    if output_format == "jpg":
+                        save_kwargs["optimize"] = True
 
-                img.save(output_path, format=output_format.upper(), **save_kwargs)
+                self.status_var.set("保存中...")
+                self.root.update_idletasks()
+
+                img.save(output_path, format=format_map[output_format], **save_kwargs)
 
             messagebox.showinfo("成功", f"変換完了！\n保存先: {output_path}")
             self.status_var.set(f"変換完了: {output_path.name}")
 
         except Exception as e:
-            messagebox.showerror("変換エラー", f"エラーが発生しました:\n{str(e)}")
+            error_msg = str(e)
+            if "decompression bomb" in error_msg.lower():
+                messagebox.showerror("エラー", "画像が大きすぎるため、処理できません。\n"
+                                           "巨大な画像は別ツールで処理してください。")
+            else:
+                messagebox.showerror("変換エラー", f"エラーが発生しました:\n{error_msg}")
             self.status_var.set("変換失敗")
 
     def run(self):
